@@ -9,15 +9,6 @@ definitions:
     PACKAGE_NAME: "org.name.plata.platatime.debug.mobile"
     GRADLEW_PATH: "android/gradlew"
 
-  develop_triggering: &develop_triggering
-    events:
-      - pull_request
-      - push
-    branch_patterns:
-      - pattern: "develop"
-        include: true
-        source: true
-
   main_triggering: &main_triggering
     events:
       - pull_request
@@ -137,21 +128,15 @@ workflows:
       <<: *main_triggering
     scripts:
       - *set_android_sdk_location
-      - *move_google_services_json
       - name: Run Expo Prebuild
         script: |
           corepack yarn expo prebuild
-      - *move_google_tap_and_pay
-      - *increment_build_number_android
       - *build_abb
       - *setup_bugsnag
     artifacts:
       - android/app/build/outputs/bundle/release/app-release.aab
     publishing:
       <<: *email_notify
-      slack:
-        channel: "#plata-mobile-android"
-        <<: *slack_notify
       google_play:
         credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
         track: internal
