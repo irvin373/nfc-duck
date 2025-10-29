@@ -1,0 +1,160 @@
+definitions:
+  common_instance: &common_instance
+    working_directory: plata-mobile
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+  android_env_vars: &android_env_vars
+    ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT
+    PACKAGE_NAME: "org.name.plata.platatime.debug.mobile"
+    GRADLEW_PATH: "android/gradlew"
+
+  develop_triggering: &develop_triggering
+    events:
+      - pull_request
+      - push
+    branch_patterns:
+      - pattern: "develop"
+        include: true
+        source: true
+
+  main_triggering: &main_triggering
+    events:
+      - pull_request
+      - push
+    branch_patterns:
+      - pattern: "main"
+        include: true
+        source: true
+
+  email_notify: &email_notify
+    email:
+      recipients:
+        - "irvin373@gmail.com"
+      notify:
+        success: true
+        failure: false
+
+  scripts:
+    - &install_dependencies
+      name: Install dependencies
+      script: |
+        corepack yarn install
+    - &set_android_sdk_location
+      name: Set Android SDK location
+      script: |
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > "android/local.properties"
+    - &run_expo_prebuild
+      name: Run Expo Prebuild
+      script: | 
+        npx expo prebuild
+    - &build_abb
+      name: Build Android release
+      script: |
+        cd android
+        echo "Starting build with version code: $UPDATED_BUILD_NUMBER"
+        ./gradlew bundleRelease \
+          -PversionCode=$UPDATED_BUILD_NUMBER
+    - &setup_bugsnag
+      name: Setup BugSnag CLI with Android Source Map
+      script: |
+        # Install BugSnag CLI
+        npm install -g @bugsnag/cli
+
+        # Add a check to ensure the files exist before attempting to upload
+        if [ ! -f "$ANDROID_SOURCEMAP_PATH" ]; then
+          echo "Error: Source map file not found at $ANDROID_SOURCEMAP_PATH."
+          tree android
+          exit 1
+        fi
+        if [ ! -f "$ANDROID_BUNDLE_PATH" ]; then
+          echo "Error: JavaScript bundle file not found at $ANDROID_BUNDLE_PATH."
+          tree android
+          exit 1
+        fi
+
+        # Upload Android Source Map
+        bugsnag-cli upload react-native-android \
+          --api-key $EXPO_PUBLIC_BUGSNAG_API_KEY
+
+workflows:
+  #Android Staging Build
+  android-staging-release:
+    name: Android Staging Release
+    <<: *common_instance
+    environment:
+      groups:
+        - common
+        - development
+        - staging
+      android_signing:
+        - debug_keystore
+      vars:
+        <<: *android_env_vars
+        # Environment Configuration
+        EXPO_PUBLIC_ENVIRONMENT: staging
+        # API Configuration
+        EXPO_PUBLIC_PLATA_TIME_API_URL: https://api.platatime.e14.io/
+      node: 22.13.1
+    scripts:
+      - *set_android_sdk_location
+      - *install_dependencies
+      - *run_expo_prebuild
+
+      - name: Run Expo Prebuild
+        script: |
+          corepack yarn expo prebuild
+      - *build_abb
+      - *setup_bugsnag
+    artifacts:
+      - android/app/build/outputs/bundle/debug/app-debug.aab
+    publishing:
+      <<: *email_notify
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
+        # Optional boolean To be used ONLY if your app cannot be sent for review automatically
+        # changes_not_sent_for_review: true
+  #Android Production Build
+  android-production-release:
+    name: Android Production Release
+    <<: *common_instance
+    environment:
+      groups:
+        - common
+        - production
+      android_signing:
+        - plata_keystore
+      vars:
+        <<: *android_env_vars
+        # Environment Configuration
+        EXPO_PUBLIC_ENVIRONMENT: production
+        # API Configuration
+        EXPO_PUBLIC_PLATA_API_URL: https://miplata.conplata.com/
+      node: 22.13.1
+    triggering:
+      <<: *main_triggering
+    scripts:
+      - *set_android_sdk_location
+      - *move_google_services_json
+      - name: Run Expo Prebuild
+        script: |
+          corepack yarn expo prebuild
+      - *move_google_tap_and_pay
+      - *increment_build_number_android
+      - *build_abb
+      - *setup_bugsnag
+    artifacts:
+      - android/app/build/outputs/bundle/release/app-release.aab
+    publishing:
+      <<: *email_notify
+      slack:
+        channel: "#plata-mobile-android"
+        <<: *slack_notify
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
+        # Optional boolean To be used ONLY if your app cannot be sent for review automatically
+        # changes_not_sent_for_review: true
