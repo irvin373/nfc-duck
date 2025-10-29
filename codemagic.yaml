@@ -39,34 +39,18 @@ definitions:
       name: Run Expo Prebuild
       script: | 
         npx expo prebuild
-    - &build_abb
-      name: Build Android release
+    - &build_debug_apk
+      name: Build Android debug APK
       script: |
         cd android
-        echo "Starting build with version code: $UPDATED_BUILD_NUMBER"
-        ./gradlew bundleRelease \
-          -PversionCode=$UPDATED_BUILD_NUMBER
-    - &setup_bugsnag
-      name: Setup BugSnag CLI with Android Source Map
+        echo "Starting debug build"
+        ./gradlew assembleDebug
+    - &build_release_aab
+      name: Build Android release AAB
       script: |
-        # Install BugSnag CLI
-        npm install -g @bugsnag/cli
-
-        # Add a check to ensure the files exist before attempting to upload
-        if [ ! -f "$ANDROID_SOURCEMAP_PATH" ]; then
-          echo "Error: Source map file not found at $ANDROID_SOURCEMAP_PATH."
-          tree android
-          exit 1
-        fi
-        if [ ! -f "$ANDROID_BUNDLE_PATH" ]; then
-          echo "Error: JavaScript bundle file not found at $ANDROID_BUNDLE_PATH."
-          tree android
-          exit 1
-        fi
-
-        # Upload Android Source Map
-        bugsnag-cli upload react-native-android \
-          --api-key $EXPO_PUBLIC_BUGSNAG_API_KEY
+        cd android
+        echo "Starting release build"
+        ./gradlew bundleRelease
 
 workflows:
   #Android Staging Build
@@ -78,8 +62,6 @@ workflows:
         - common
         - development
         - staging
-      android_signing:
-        - debug_keystore
       vars:
         <<: *android_env_vars
         # Environment Configuration
@@ -91,14 +73,9 @@ workflows:
       - *set_android_sdk_location
       - *install_dependencies
       - *run_expo_prebuild
-
-      - name: Run Expo Prebuild
-        script: |
-          corepack yarn expo prebuild
-      - *build_abb
-      - *setup_bugsnag
+      - *build_debug_apk
     artifacts:
-      - android/app/build/outputs/bundle/debug/app-debug.aab
+      - android/app/build/outputs/apk/debug/app-debug.apk
     publishing:
       <<: *email_notify
       google_play:
@@ -131,8 +108,7 @@ workflows:
       - name: Run Expo Prebuild
         script: |
           corepack yarn expo prebuild
-      - *build_abb
-      - *setup_bugsnag
+      - *build_release_aab
     artifacts:
       - android/app/build/outputs/bundle/release/app-release.aab
     publishing:
